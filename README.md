@@ -17,7 +17,7 @@ experiment records without becoming a data dump.
 - `HeteroTIEFormer.py` — V0.1 candidate-bank router and the exploratory
   fine-scale residual probe.
 - `train_explore.py` — deterministic torch-only training/evaluation loop with
-  scheduled-sampling recursive rollout and early stopping.
+  free-running rollout-aware training and early stopping.
 - `diagnose_gate_controls.py` — evaluates a trained adaptive checkpoint with
   learned, uniform, reversed and region-shuffled gates.
 - `configs/` — small JSON snapshots of run settings.
@@ -102,3 +102,28 @@ The post-fix gate-control checks illustrate the failure mode.  With scale order
 0, 0]` on TJU and `[0.9856, 0.0096, 0, 0.0048]` on NASA; the soft residual
 run stayed close to uniform.  These controls are diagnostic evidence, not a
 claim that the selector has learned the desired degradation semantics.
+
+## Rollout-aware objective trial
+
+The next controlled experiment changed the target to
+
+```text
+L = L_1step + λ L_free-rollout
+```
+
+with a fully free four-step rollout and stop-gradient feedback.  The residual
+architecture was kept fixed and only `λ` was changed:
+
+| Dataset / λ | observed MAE | recursive MAE | recursive R² |
+|---|---:|---:|---:|
+| TJU / 1.00 | 0.002625 | 0.109654 | -1.146449 |
+| TJU / 0.25 | 0.001318 | 0.063847 | 0.394354 |
+| TJU / 0.50 | 0.005694 | 0.129218 | -1.461417 |
+| NASA / 1.00 | 0.016174 | 0.036253 | 0.001738 |
+| NASA / 0.25 | 0.008868 | 0.024960 | 0.465560 |
+| NASA / 0.50 | 0.011646 | 0.026826 | 0.424881 |
+
+None of these runs exceeded the round1 residual reference (`0.012151` TJU,
+`0.023017` NASA).  The objective is therefore recorded as a negative result:
+four-step free-running supervision alone does not correct the much longer
+cross-cell recursive distribution shift and can damage one-step capacity fit.

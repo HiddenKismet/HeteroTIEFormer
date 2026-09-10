@@ -10,3 +10,8 @@ gradient fixed, then low-temperature and hard-routing controls).  The matching
 and region-shuffled controls.  Empty recursive RUL fields indicate that the
 rollout never crossed the EOL threshold and therefore has no valid predicted
 EOL cycle.
+
+The `residual_rollout_obj.json` and `residual_rollout_w025.json` /
+`residual_rollout_w050.json` files are the rollout-aware objective trial. They
+use the same residual model and seed-42 protocol with `λ=1.0`, `0.25`, and
+`0.5`, respectively.

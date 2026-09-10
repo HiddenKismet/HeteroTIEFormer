@@ -1,0 +1,39 @@
+{
+  "variant": "residual",
+  "data_file": "external_data/TJU_Data.npy",
+  "test_cell": "CY25_1",
+  "rated": 2.5,
+  "eol_ratio": 0.7,
+  "normalization": "train_minmax",
+  "start_cycles": [
+    300,
+    450,
+    600
+  ],
+  "epochs": 150,
+  "patience": 60,
+  "seed": 42,
+  "d_model": 16,
+  "batch_size": 256,
+  "rollout_horizon": 4,
+  "rollout_loss_weight": 0.5,
+  "delta_scale": 10.0,
+  "selector_tau": 1.5,
+  "selector_tau_final": null,
+  "selector_hard": false,
+  "selector_init_std": 0.0,
+  "selector_budget_weight": 0.0005,
+  "selector_entropy_weight": 0.005,
+  "out": "runs/tju_residual_rollout_w050",
+  "normalization_min": 1.6535135123735911,
+  "normalization_max": 2.42080875039578,
+  "normalization_range": 0.7672952380221887,
+  "eol_threshold_Ah": 1.75,
+  "feedback_bounds": [
+    -0.25,
+    1.25
+  ],
+  "train_samples": 1338,
+  "val_samples": 363,
+  "parameters": 111890
+}
