@@ -22,12 +22,15 @@ class CandidateBranch(nn.Module):
     """One fixed-patch Local/Regional candidate with Omni-compatible shapes."""
 
     extract_local_features = OmniTIEFormer.extract_local_features
-    extract_regional_features = OmniTIEFormer.extract_regional_features
 
-    def __init__(self, patch_size, seq_len, d_model, enc_in=1):
+    def __init__(self, patch_size, seq_len, d_model, enc_in=1,
+                 regional_restore='legacy'):
         super().__init__()
+        if regional_restore not in ('legacy', 'aligned'):
+            raise ValueError('regional_restore must be legacy or aligned')
         if seq_len % patch_size:
             raise ValueError('seq_len must be divisible by patch_size')
+        self.regional_restore = regional_restore
         self.patch_size = patch_size
         self.patch_stride = patch_size
         self.patch_nums = seq_len // patch_size
@@ -46,6 +49,24 @@ class CandidateBranch(nn.Module):
         self.local_feature_projection = nn.Linear(self.patch_nums, seq_len)
         self.rca = RegionalChannelAttention(self.patch_nums)
 
+    def extract_regional_features(self, embedded_x):
+        if self.regional_restore == 'legacy':
+            # Preserve the historical checkpoints and upstream behavior exactly.
+            return OmniTIEFormer.extract_regional_features(self, embedded_x)
+
+        # [B, L, M, D] -> [B, M, N, D, P]; RCA still operates on N patches.
+        patches = embedded_x.unfold(1, self.patch_size, self.patch_stride)
+        patches = patches.permute(0, 2, 1, 3, 4)
+        b, nvar, patch_num, dim, patch_len = patches.shape
+        weighted = self.rca(patches.reshape(b * nvar, patch_num, dim, patch_len))
+
+        # Undo the split explicitly. Reshape alone cannot swap D and P or
+        # move M back to its original position.
+        restored = weighted.reshape(b, nvar, patch_num, dim, patch_len)
+        restored = restored.permute(0, 2, 4, 1, 3)
+        restored = restored.reshape(b, patch_num * patch_len, nvar, dim)
+        return restored + embedded_x
+
     def forward(self, embedded_x):
         return self.extract_local_features(embedded_x), self.extract_regional_features(embedded_x)
 
@@ -56,6 +77,8 @@ class HeteroTIEFormer(OmniTIEFormer):
     ``routing='adaptive'`` is the V0.1 model.  ``routing='uniform'`` is a
     diagnostic fixed mixture.  ``routing='residual'`` retains the P=2 branch
     and adds a bounded correction from the coarser candidate branches.
+    ``regional_restore='aligned'`` opts into time-aligned RCA restoration;
+    the default ``'legacy'`` keeps historical checkpoint behavior unchanged.
     """
 
     def __init__(
@@ -66,6 +89,7 @@ class HeteroTIEFormer(OmniTIEFormer):
         tau=1.5,
         selector_hard=False,
         residual_gain_init=0.25,
+        regional_restore='legacy',
         **kwargs,
     ):
         if seq_len % 16 or seq_len < 32:
@@ -74,6 +98,8 @@ class HeteroTIEFormer(OmniTIEFormer):
             raise ValueError(f'unknown routing mode: {routing}')
         if tau <= 0:
             raise ValueError('selector temperature must be positive')
+        if regional_restore not in ('legacy', 'aligned'):
+            raise ValueError('regional_restore must be legacy or aligned')
         super().__init__(
             patch_len=2,
             seq_len=seq_len,
@@ -98,8 +124,10 @@ class HeteroTIEFormer(OmniTIEFormer):
         self.routing = routing
         self.tau = float(tau)
         self.selector_hard = bool(selector_hard)
+        self.regional_restore = regional_restore
         self.bank = nn.ModuleList(
-            [CandidateBranch(p, seq_len, d_model) for p in self.scales]
+            [CandidateBranch(p, seq_len, d_model, regional_restore=regional_restore)
+             for p in self.scales]
         )
         self.selector = (
             nn.Sequential(nn.Linear(16, 64), nn.ReLU(), nn.Linear(64, 4))
