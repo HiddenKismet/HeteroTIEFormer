@@ -14,8 +14,9 @@ python tools/prepare_batteryarchive_calce.py
 ```
 
 For a single GPU, launch the two variants one after the other (or use separate
-GPUs).  Both use the same split, measured-capacity windows, seed, and stopping
-rule:
+GPUs).  Start the Omni block first and run the V0.1 block after its
+`metrics.json` appears.  Both use the same split, measured-capacity windows,
+seed, and stopping rule:
 
 ```bash
 export OMP_NUM_THREADS=1
@@ -36,6 +37,11 @@ nohup python -u train_explore.py \
   --regional-restore legacy \
   --out runs/ba_calce_a_omni_remote \
   > runs/remote_logs/ba_calce_a_omni_remote.log 2>&1 &
+```
+
+After the first run finishes, start V0.1:
+
+```bash
 
 nohup python -u train_explore.py \
   --variant adaptive \
