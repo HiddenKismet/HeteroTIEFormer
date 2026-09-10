@@ -1,0 +1,66 @@
+{
+  "variant": "residual",
+  "regional_restore": "legacy",
+  "data_file": "external_data/NASA_Data.npy",
+  "window": 64,
+  "test_cell": "B0005",
+  "rated": 2.0,
+  "eol_ratio": 0.7,
+  "normalization": "train_minmax",
+  "start_cycles": [
+    100,
+    120
+  ],
+  "epochs": 150,
+  "patience": 60,
+  "seed": 42,
+  "d_model": 16,
+  "batch_size": 256,
+  "torch_threads": 1,
+  "torch_interop_threads": 1,
+  "rollout_horizon": 4,
+  "train_objective": "one_step",
+  "rollout_loss_weight": 1.0,
+  "delta_scale": 10.0,
+  "selector_tau": 1.5,
+  "selector_tau_final": null,
+  "selector_hard": false,
+  "selector_init_std": 0.0,
+  "selector_budget_weight": 0.0,
+  "selector_entropy_weight": 0.0,
+  "primary_protocol": "observed_history",
+  "out": "runs/clean_residual_nasa_one_step",
+  "normalization_min": 1.2637639426440779,
+  "normalization_max": 2.035337591005598,
+  "normalization_range": 0.7715736483615201,
+  "eol_threshold_Ah": 1.4,
+  "feedback_bounds": [
+    -0.25,
+    1.25
+  ],
+  "train_samples": 205,
+  "val_samples": 53,
+  "parameters": 111890,
+  "split_policy": "target_disjoint",
+  "split_info": {
+    "B0006": {
+      "train_windows": 78,
+      "validation_windows": 20,
+      "validation_start_index": 145,
+      "validation_start_cycle": 146.0
+    },
+    "B0007": {
+      "train_windows": 78,
+      "validation_windows": 20,
+      "validation_start_index": 145,
+      "validation_start_cycle": 146.0
+    },
+    "B0018": {
+      "train_windows": 49,
+      "validation_windows": 13,
+      "validation_start_index": 116,
+      "validation_start_cycle": 117.0
+    }
+  },
+  "normalization_source": "train_cells_train_target_prefix"
+}

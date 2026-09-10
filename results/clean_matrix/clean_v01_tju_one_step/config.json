@@ -1,0 +1,61 @@
+{
+  "variant": "adaptive",
+  "regional_restore": "legacy",
+  "data_file": "external_data/TJU_Data.npy",
+  "window": 64,
+  "test_cell": "CY25_1",
+  "rated": 2.5,
+  "eol_ratio": 0.7,
+  "normalization": "train_minmax",
+  "start_cycles": [
+    300,
+    450,
+    600
+  ],
+  "epochs": 150,
+  "patience": 60,
+  "seed": 42,
+  "d_model": 16,
+  "batch_size": 256,
+  "torch_threads": 1,
+  "torch_interop_threads": 1,
+  "rollout_horizon": 4,
+  "train_objective": "one_step",
+  "rollout_loss_weight": 1.0,
+  "delta_scale": 10.0,
+  "selector_tau": 1.5,
+  "selector_tau_final": null,
+  "selector_hard": false,
+  "selector_init_std": 0.0,
+  "selector_budget_weight": 0.0,
+  "selector_entropy_weight": 0.0,
+  "primary_protocol": "observed_history",
+  "out": "runs/clean_v01_tju_one_step",
+  "normalization_min": 1.7635720405504,
+  "normalization_max": 2.42080875039578,
+  "normalization_range": 0.6572367098453797,
+  "eol_threshold_Ah": 1.75,
+  "feedback_bounds": [
+    -0.25,
+    1.25
+  ],
+  "train_samples": 1360,
+  "val_samples": 341,
+  "parameters": 111890,
+  "split_policy": "target_disjoint",
+  "split_info": {
+    "CY25_2": {
+      "train_windows": 667,
+      "validation_windows": 167,
+      "validation_start_index": 734,
+      "validation_start_cycle": 735.0
+    },
+    "CY25_3": {
+      "train_windows": 693,
+      "validation_windows": 174,
+      "validation_start_index": 760,
+      "validation_start_cycle": 761.0
+    }
+  },
+  "normalization_source": "train_cells_train_target_prefix"
+}
