@@ -59,6 +59,43 @@ def make_windows(q, indices, horizon):
     return torch.from_numpy(x[..., None]), torch.from_numpy(y)
 
 
+def split_window_indices(length, window, horizon, train_fraction=0.8):
+    """Return target-disjoint train/validation window starts.
+
+    A horizon longer than one makes a naive split of window *starts* leak
+    labels: the last training window would target samples that are also the
+    first validation targets.  We leave ``horizon - 1`` starts out of the
+    training set so that the target index ranges are disjoint.  The returned
+    ``validation_start`` is a raw trajectory index and is also the exclusive
+    end of the prefix used for train-only normalization.
+    """
+    if length <= window + horizon:
+        raise ValueError(
+            f'trajectory has too few points for window={window}, horizon={horizon}: '
+            f'{length}'
+        )
+    available = np.arange(window, length - horizon + 1)
+    if len(available) < horizon + 1:
+        raise ValueError(
+            f'trajectory has too few usable windows for target-disjoint split: '
+            f'{len(available)} (window={window}, horizon={horizon})'
+        )
+    cut = int(np.ceil(float(train_fraction) * len(available)))
+    cut = min(max(cut, horizon), len(available) - 1)
+    # Keep the final training target immediately before the validation target;
+    # trimming ``horizon - 1`` starts is sufficient for disjoint ranges.
+    train_count = cut - horizon + 1
+    if train_count < 1:
+        raise ValueError(
+            f'target-disjoint split leaves no training windows: '
+            f'available={len(available)}, horizon={horizon}, cut={cut}'
+        )
+    train_idx = available[:train_count]
+    val_idx = available[cut:]
+    validation_start = int(val_idx[0])
+    return train_idx, val_idx, validation_start
+
+
 class RelativeCapacityForecaster(torch.nn.Module):
     """Predict a scaled increment while exposing an absolute capacity output."""
 
@@ -123,7 +160,7 @@ def selector_regularization(gates, budget=4.0, entropy_target=1.0):
 
 
 def build_model(variant, d_model, selector_tau=1.5, selector_hard=False,
-                selector_init_std=0.0, regional_restore='legacy'):
+                selector_init_std=0.0, regional_restore='legacy', seq_len=64):
     if regional_restore not in ('legacy', 'aligned'):
         raise ValueError('regional_restore must be legacy or aligned')
     common = dict(d_model=d_model, n_heads=4, e_layers=1, dropout=0.1)
@@ -131,8 +168,8 @@ def build_model(variant, d_model, selector_tau=1.5, selector_hard=False,
         if regional_restore != 'legacy':
             raise ValueError('aligned Regional restore applies only to Hetero variants; '
                              'the Omni reference remains unchanged')
-        return OmniTIEFormer(patch_len=2, seq_len=64, pred_len=1, enc_in=1, **common)
-    model = HeteroTIEFormer(routing=variant, tau=selector_tau,
+        return OmniTIEFormer(patch_len=2, seq_len=seq_len, pred_len=1, enc_in=1, **common)
+    model = HeteroTIEFormer(seq_len=seq_len, routing=variant, tau=selector_tau,
                             selector_hard=selector_hard,
                             regional_restore=regional_restore, **common)
     if selector_init_std > 0 and model.selector is not None:
@@ -199,14 +236,21 @@ def evaluate_one(model, q, cycles, start, norm_min, norm_range, eol_norm,
     def rul_metrics(pred_eol):
         if actual is None or pred_eol is None:
             return None, None
+        # A requested start at/after the measured EOL has no positive RUL
+        # denominator.  Keep the trajectory metrics, but mark both RUL
+        # quantities undefined so aggregation cannot manufacture an infinity.
+        remaining = actual - origin
+        if remaining <= 1e-12:
+            return None, None
         ae = abs(actual - pred_eol)
-        return float(ae), float(ae / (actual - origin))
+        return float(ae), float(ae / remaining)
 
     obs_ae, obs_re = rul_metrics(obs_eol)
     rec_ae, rec_re = rul_metrics(rec_eol)
     return {
         'requested_start_cycle': int(cycles[start]),
         'origin_cycle': origin,
+        'actual_eol_cycle': actual,
         'observed_mae_Ah': float(np.abs(obs_a - true_a).mean()),
         'observed_rmse_Ah': float(np.sqrt(np.mean((obs_a - true_a) ** 2))),
         'observed_r2': r2(true_a, obs_a),
@@ -234,6 +278,7 @@ def aggregate(rows, prefix):
     res = [r[prefix + '_rul_re'] for r in rows if r[prefix + '_rul_re'] is not None]
     if aes:
         out[prefix + '_AAE_cycles'] = float(np.mean(aes))
+    if res:
         out[prefix + '_ARE'] = float(np.mean(res))
     return out
 
@@ -245,20 +290,27 @@ def main():
                     help='Regional patch restoration; aligned fixes the time/feature '
                          'layout in Hetero candidates only (legacy preserves old runs)')
     ap.add_argument('--data-file', required=True)
+    ap.add_argument('--window', type=int, default=64,
+                    help='number of observations in each context window (default: 64)')
     ap.add_argument('--test-cell', required=True)
     ap.add_argument('--rated', type=float, required=True)
     ap.add_argument('--eol-ratio', type=float, default=0.7)
     ap.add_argument('--normalization', choices=['rated', 'train_minmax'], default='train_minmax')
     ap.add_argument('--start-cycles', type=int, nargs='+', required=True)
-    ap.add_argument('--epochs', type=int, default=150)
-    ap.add_argument('--patience', type=int, default=60)
+    ap.add_argument('--epochs', type=int, default=50)
+    ap.add_argument('--patience', type=int, default=10)
     ap.add_argument('--seed', type=int, default=42)
     ap.add_argument('--d-model', type=int, default=16)
     ap.add_argument('--batch-size', type=int, default=256)
+    ap.add_argument('--torch-threads', type=int, default=1,
+                    help='intra-op CPU threads for this process (default: 1)')
+    ap.add_argument('--torch-interop-threads', type=int, default=1,
+                    help='inter-op CPU threads for this process (default: 1)')
     ap.add_argument('--rollout-horizon', type=int, default=4)
-    ap.add_argument('--train-objective', choices=['free_rollout', 'scheduled_sampling'],
+    ap.add_argument('--train-objective', choices=['one_step', 'free_rollout', 'scheduled_sampling'],
                     default='free_rollout',
-                    help='training objective; scheduled_sampling reproduces round1 V0.1')
+                    help='training objective; one_step is the clean next-cycle loss; '
+                         'scheduled_sampling reproduces round1 V0.1')
     ap.add_argument('--rollout-loss-weight', type=float, default=1.0,
                     help='weight of the fully free-running rollout MAE in training')
     ap.add_argument('--delta-scale', type=float, default=10.0)
@@ -280,11 +332,17 @@ def main():
         ap.error('--regional-restore=aligned applies only to Hetero variants')
     if args.rollout_loss_weight < 0:
         raise ValueError('--rollout-loss-weight must be non-negative')
+    if args.window < 2:
+        raise ValueError('--window must be at least 2')
     if args.train_objective == 'scheduled_sampling' and args.rollout_loss_weight != 1.0:
         raise ValueError('--rollout-loss-weight must remain 1.0 with scheduled_sampling')
 
-    torch.set_num_threads(1)
-    torch.set_num_interop_threads(1)
+    if args.torch_threads < 1 or args.torch_interop_threads < 1:
+        raise ValueError('torch thread counts must be positive')
+    torch.set_num_threads(args.torch_threads)
+    torch.set_num_interop_threads(args.torch_interop_threads)
+    global WINDOW
+    WINDOW = int(args.window)
     seed_everything(args.seed)
     root = Path(__file__).resolve().parent
     data_path = Path(args.data_file)
@@ -293,7 +351,28 @@ def main():
     cells_raw = load_cells(data_path)
     if args.test_cell not in cells_raw:
         raise KeyError(args.test_cell)
-    train_raw = np.concatenate([q for name, (_, q) in cells_raw.items() if name != args.test_cell])
+    # Build the split on raw trajectories before normalization.  In addition
+    # to avoiding multi-step target overlap, this lets train_minmax use only
+    # the prefix that can contribute training targets; validation tails and the
+    # held-out test cell never determine the scale.
+    split_info = {}
+    train_raw_parts = []
+    for name, (cycles, q) in cells_raw.items():
+        if name == args.test_cell:
+            continue
+        train_idx, val_idx, validation_start = split_window_indices(
+            len(q), WINDOW, args.rollout_horizon
+        )
+        split_info[name] = {
+            'train_windows': int(len(train_idx)),
+            'validation_windows': int(len(val_idx)),
+            'validation_start_index': validation_start,
+            'validation_start_cycle': float(cycles[validation_start]),
+        }
+        train_raw_parts.append(q[:validation_start])
+    if not train_raw_parts:
+        raise ValueError('at least one non-test training trajectory is required')
+    train_raw = np.concatenate(train_raw_parts)
     if args.normalization == 'train_minmax':
         norm_min, norm_max = float(train_raw.min()), float(train_raw.max())
     else:
@@ -303,10 +382,10 @@ def main():
     train_cells = {k: v for k, v in cells.items() if k != args.test_cell}
     horizon = args.rollout_horizon
     train_pairs, val_pairs = [], []
-    for _, (_, q) in train_cells.items():
-        cut = int(len(q) * 0.8)
-        train_idx = np.arange(WINDOW, cut - horizon + 1)
-        val_idx = np.arange(max(cut, WINDOW), len(q) - horizon + 1)
+    for name, (_, q) in train_cells.items():
+        train_idx, val_idx, _ = split_window_indices(
+            len(q), WINDOW, horizon
+        )
         train_pairs.append(make_windows(q, train_idx, horizon))
         val_pairs.append(make_windows(q, val_idx, horizon))
     train_ds = TensorDataset(torch.cat([x for x, _ in train_pairs]), torch.cat([y for _, y in train_pairs]))
@@ -318,7 +397,7 @@ def main():
     model = RelativeCapacityForecaster(
         build_model(args.variant, args.d_model, args.selector_tau,
                     args.selector_hard, args.selector_init_std,
-                    regional_restore=args.regional_restore),
+                    regional_restore=args.regional_restore, seq_len=WINDOW),
         args.delta_scale,
     )
     opt = torch.optim.Adam(model.parameters(), lr=1e-3)
@@ -329,7 +408,10 @@ def main():
     config = dict(vars(args), normalization_min=norm_min, normalization_max=norm_max,
                   normalization_range=norm_range, eol_threshold_Ah=args.rated * args.eol_ratio,
                   feedback_bounds=[feedback_low, feedback_high], train_samples=len(train_ds),
-                  val_samples=len(val_ds), parameters=sum(p.numel() for p in model.parameters()))
+                  val_samples=len(val_ds), parameters=sum(p.numel() for p in model.parameters()),
+                  split_policy='target_disjoint', split_info=split_info,
+                  normalization_source=('rated' if args.normalization == 'rated'
+                                        else 'train_cells_train_target_prefix'))
     (out / 'config.json').write_text(json.dumps(config, indent=2))
     with (out / 'epochs.csv').open('w', newline='') as fh:
         writer = csv.writer(fh)
@@ -349,7 +431,17 @@ def main():
             train_roll_total = 0.0
             for x, future in train_loader:
                 opt.zero_grad()
-                if args.train_objective == 'scheduled_sampling':
+                if args.train_objective == 'one_step':
+                    # Pure next-cycle supervision.  Recursive rollout remains
+                    # an evaluation-only stability diagnostic, so it cannot
+                    # distort the selector while we test its scale signal.
+                    one_step = model(x).squeeze(-1)
+                    one_loss = (one_step - future[:, 0]).abs().mean()
+                    rollout_loss = one_loss.detach()
+                    gate = getattr(model, 'latest_gate_probs', None)
+                    gates = [gate] if gate is not None else []
+                    loss = one_loss
+                elif args.train_objective == 'scheduled_sampling':
                     if args.variant in ('adaptive', 'residual'):
                         pred, gates = rollout(model, x, future, tf,
                                               feedback_low, feedback_high, True)

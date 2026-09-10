@@ -92,8 +92,8 @@ class HeteroTIEFormer(OmniTIEFormer):
         regional_restore='legacy',
         **kwargs,
     ):
-        if seq_len % 16 or seq_len < 32:
-            raise ValueError('seq_len must be divisible by 16 and >=32')
+        if seq_len < 16 or seq_len % 16:
+            raise ValueError('seq_len must be divisible by 16 and >=16')
         if routing not in ('adaptive', 'uniform', 'residual'):
             raise ValueError(f'unknown routing mode: {routing}')
         if tau <= 0:
@@ -119,7 +119,11 @@ class HeteroTIEFormer(OmniTIEFormer):
         ):
             delattr(self, name)
 
+        # Keep the candidate set from V0.1.  For a 16-point Stanford context
+        # this produces one routing region; for 32/64-point contexts the same
+        # candidates are evaluated in two/four regions respectively.
         self.scales = (2, 4, 8, 16)
+        self.region_len = max(self.scales)
         self.seq_len = seq_len
         self.routing = routing
         self.tau = float(tau)
@@ -130,7 +134,7 @@ class HeteroTIEFormer(OmniTIEFormer):
              for p in self.scales]
         )
         self.selector = (
-            nn.Sequential(nn.Linear(16, 64), nn.ReLU(), nn.Linear(64, 4))
+            nn.Sequential(nn.Linear(self.region_len, 64), nn.ReLU(), nn.Linear(64, 4))
             if routing in ('adaptive', 'residual') else None
         )
         if self.selector is not None:
@@ -162,9 +166,12 @@ class HeteroTIEFormer(OmniTIEFormer):
         ``learned`` is the normal V0.1 behavior.  ``uniform`` removes
         region-wise routing, ``reverse`` mirrors scale probabilities, and
         ``region_shuffle`` moves each region's learned decision to a different
-        region.  These controls do not change trainable parameters.
+        region.  ``force_p{2,4,8,16}`` selects one candidate everywhere for a
+        fixed-scale intervention.  These controls do not change trainable
+        parameters.
         """
         allowed = {'learned', 'uniform', 'reverse', 'region_shuffle'}
+        allowed.update(f'force_p{p}' for p in self.scales)
         if mode not in allowed:
             raise ValueError(f'unknown gate mode: {mode}')
         self.gate_mode = mode
@@ -181,8 +188,13 @@ class HeteroTIEFormer(OmniTIEFormer):
         return (candidates * weights).sum(dim=1)
 
     def _gate(self, x):
-        regions = x[:, :, 0].reshape(x.shape[0], -1, 16)
-        if self.gate_mode == 'uniform' or self.selector is None:
+        regions = x[:, :, 0].reshape(x.shape[0], -1, self.region_len)
+        if self.gate_mode.startswith('force_p'):
+            scale = int(self.gate_mode[len('force_p'):])
+            index = self.scales.index(scale)
+            gate = x.new_zeros((*regions.shape[:2], 4))
+            gate[..., index] = 1.0
+        elif self.gate_mode == 'uniform' or self.selector is None:
             gate = x.new_full((*regions.shape[:2], 4), 0.25)
         else:
             logits = self.selector(regions)
@@ -217,7 +229,7 @@ class HeteroTIEFormer(OmniTIEFormer):
             regional_base = regional_candidates[:, 0]
             local_delta = local_candidates[:, 1:] - local_base[:, None]
             regional_delta = regional_candidates[:, 1:] - regional_base[:, None]
-            coarse_gate = gate[:, :, 1:].repeat_interleave(16, dim=1)
+            coarse_gate = gate[:, :, 1:].repeat_interleave(self.region_len, dim=1)
             coarse_gate = coarse_gate.transpose(1, 2)[..., None, None]
             local = local_base + gain * (local_delta * coarse_gate).sum(dim=1)
             regional = regional_base + gain * (regional_delta * coarse_gate).sum(dim=1)

@@ -1,0 +1,15 @@
+{
+  "variant": "adaptive",
+  "regional_restore": "aligned",
+  "train_objective": "scheduled_sampling",
+  "data_file": "Panasonic_Data.npy",
+  "test_cell": "Cell01",
+  "rated": 3.0,
+  "normalization": "train_minmax",
+  "start_cycles": [300, 400, 500],
+  "epochs": 150,
+  "patience": 60,
+  "rollout_horizon": 4,
+  "seed": 42,
+  "source_run": "runs/r1_aligned_panasonic_adaptive"
+}

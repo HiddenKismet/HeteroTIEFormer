@@ -17,9 +17,9 @@ experiment records without becoming a data dump.
 - `HeteroTIEFormer.py` — V0.1 candidate-bank router and the exploratory
   fine-scale residual probe.
 - `train_explore.py` — deterministic torch-only training/evaluation loop with
-  free-running rollout-aware training and early stopping.
-- `diagnose_gate_controls.py` — evaluates a trained adaptive checkpoint with
-  learned, uniform, reversed and region-shuffled gates.
+  target-disjoint validation, train-only normalization and early stopping.
+- `diagnose_gate_controls.py` — evaluates learned, uniform, reversed,
+  region-shuffled and fixed-scale gates, including a per-window oracle bound.
 - `configs/` — small JSON snapshots of run settings.
 - `results/` — compact JSON metrics from the tracked seed-42 exploration.
 
@@ -43,15 +43,97 @@ python train_explore.py \
   --test-cell CY25_1 --rated 2.5 \
   --normalization train_minmax \
   --start-cycles 300 450 600 \
-  --epochs 150 --patience 60 --rollout-horizon 4 \
+  --epochs 50 --patience 10 --rollout-horizon 4 \
   --rollout-loss-weight 1.0 \
+  --primary-protocol observed_history \
   --seed 42 --out runs/tju_adaptive
 ```
 
+For a clean selector-mechanism experiment, use pure next-cycle supervision and
+disable auxiliary selector priors:
+
+```bash
+python train_explore.py \
+  --variant adaptive --data-file external_data/TJU_Data.npy \
+  --test-cell CY25_1 --rated 2.5 --normalization train_minmax \
+  --start-cycles 300 450 600 --epochs 50 --patience 10 \
+  --rollout-horizon 4 --train-objective one_step \
+  --selector-budget-weight 0 --selector-entropy-weight 0 \
+  --primary-protocol observed_history --seed 42 \
+  --out runs/tju_clean_v01
+```
+
+With a multi-step horizon, validation targets are separated from training
+targets by trimming `horizon - 1` window starts.  The `train_minmax` range is
+computed only from each training cell's prefix before its first validation
+target; validation tails and the held-out test cell cannot set the scale.
+Trajectories need at least `window + 2*horizon` observations for this split.
+
+For a layout-only reproduction of historical round1 V0.1, add
+`--regional-restore aligned --train-objective scheduled_sampling` and use a
+new output directory. The historical V0.1 comparison uses scheduled sampling;
+the current runner's default `free_rollout` objective is a separate training
+experiment, independent of the primary evaluation protocol.
+
 The evaluator reports both observed-history and free-running recursive
-MAE/RMSE/R², plus EOL-based RUL AE/RE.  `--variant omni` is the fixed-patch
-baseline; `uniform` is a four-candidate fixed mixture; `residual` is an
-exploratory fine-scale-anchor control.
+MAE/RMSE/R², plus EOL-based RUL AE/RE.  The primary protocol defaults to
+`observed_history`: every prediction uses a window refreshed with measured
+capacity.  The `primary` block in `metrics.json` and best-checkpoint selection
+follow that protocol; use `--primary-protocol recursive` only when open-loop
+stability is the target.  `--variant omni` is the fixed-patch baseline;
+`uniform` is a four-candidate fixed mixture; `residual` is an exploratory
+fine-scale-anchor control.
+
+After a run, fixed-scale and oracle diagnostics can be written separately so
+the checkpoint record is preserved:
+
+```bash
+python diagnose_gate_controls.py --run runs/tju_clean_v01 \
+  --data-file external_data/TJU_Data.npy --test-cell CY25_1 \
+  --start-cycles 300 450 600 \
+  --out diagnostics/tju_clean_v01_oracle.json
+```
+
+### Regional restoration ablation (R1; not yet benchmarked)
+
+The first structural repair is opt-in via `--regional-restore aligned`.
+It only changes how each Hetero candidate restores its RCA output:
+`[B*M,N,D,P] -> [B,M,N,D,P] -> [B,N,P,M,D] -> [B,L,M,D]`.
+The middle step is a permutation, not a reshape. This restores each patch's
+features to their original cycle and variable positions before the existing
+embedding residual is added.
+
+`--regional-restore legacy` remains the default and delegates to the upstream
+operation exactly. The original Omni source and baseline are unchanged;
+`--variant omni --regional-restore aligned` is rejected. The aligned mode applies
+to all four candidates, including P=2, in adaptive, uniform and residual routing.
+It adds no parameters and does not change Local restoration, RCA weights or
+amplitudes, the selector, TCEM, the loss, or early stopping (50 epochs / patience
+10 by default). It is a layout correction, not a new attention mechanism.
+
+The mode is recorded in `config.json`, the checkpoint's `config`, and the new
+metrics. The gate diagnostic restores this setting; configurations without it
+are treated as legacy. A weights-only state dict cannot distinguish the modes,
+so always keep its configuration. Loading old weights with `aligned` changes
+their computation and is not a faithful reevaluation of the old checkpoint.
+
+For an isolated comparison, keep every other setting and the training objective
+identical, use separate output directories, and vary only this switch. In
+particular, the current rollout-aware objective differs from the historical
+round1 scheduled-sampling objective; a new aligned run under the current default
+must not be presented as a layout-only comparison to round1. No new performance
+claim is made by this repair, and historical results are not overwritten.
+
+Run the dataset-free regression suite from this directory:
+
+```bash
+python -m unittest discover -s tests -v
+```
+
+Tests cover all four patch sizes, multiple variables, non-contiguous inputs,
+patch-position weighting, gradients, legacy compatibility, and checkpoint/CLI
+round trips. A single tiny synthetic epoch checks saving and reloading; it is
+not a battery benchmark.
 
 The rollout-aware objective is
 
@@ -127,3 +209,24 @@ None of these runs exceeded the round1 residual reference (`0.012151` TJU,
 `0.023017` NASA).  The objective is therefore recorded as a negative result:
 four-step free-running supervision alone does not correct the much longer
 cross-cell recursive distribution shift and can damage one-step capacity fit.
+
+## R1 aligned Regional-restoration trial
+
+The R1 change fixes only the time/feature permutation in Hetero candidates'
+Regional restoration. The historical V0.1 training objective, seed, horizon,
+epoch limit and patience are retained. Results below are evaluated from the
+best validation-rollout checkpoint; the old V0.1 values are included only as a
+reference, not retrained.
+
+| Dataset | old V0.1 observed MAE | R1 observed MAE | old V0.1 recursive MAE | R1 recursive MAE |
+|---|---:|---:|---:|---:|
+| TJU | 0.001581 | 0.002037 | 0.075640 | **0.045420** |
+| NASA | 0.012502 | **0.009504** | **0.022725** | 0.038503 |
+| Panasonic | — | 0.003592 | — | 0.299881 |
+
+R1 improves TJU recursive stability and NASA observed-history accuracy, but it
+does not improve every metric. The adaptive gate remains near-uniform on all
+three datasets, so this result supports a representation-alignment repair, not
+yet a claim of learned degradation-dependent granularity. The corresponding
+compact settings are `configs/r1_aligned_*.json`, and the full local metrics,
+checkpoints and gate controls remain under the `runs/r1_aligned_*` directories.

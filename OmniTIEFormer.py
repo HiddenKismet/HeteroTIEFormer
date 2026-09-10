@@ -312,8 +312,10 @@ class SEAttention4D(nn.Module):
     def __init__(self, in_channels):
         super().__init__()
         self.avgpool = nn.AdaptiveAvgPool2d(1)
-        self.conv_squeeze = nn.Conv2d(in_channels, in_channels // 2, kernel_size=(1, 1), bias=False)
-        self.conv_excitation = nn.Conv2d(in_channels // 2, in_channels, kernel_size=(1, 1), bias=False)
+        # Keep a non-empty bottleneck for a one-patch regional branch.
+        hidden = max(1, in_channels // 2)
+        self.conv_squeeze = nn.Conv2d(in_channels, hidden, kernel_size=(1, 1), bias=False)
+        self.conv_excitation = nn.Conv2d(hidden, in_channels, kernel_size=(1, 1), bias=False)
         self.sigmoid = nn.Sigmoid()
         self.softmax = nn.Softmax(dim=1)
 

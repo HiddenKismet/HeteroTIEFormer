@@ -15,3 +15,9 @@ The `residual_rollout_obj.json` and `residual_rollout_w025.json` /
 `residual_rollout_w050.json` files are the rollout-aware objective trial. They
 use the same residual model and seed-42 protocol with `λ=1.0`, `0.25`, and
 `0.5`, respectively.
+
+The R1 aligned Regional-restoration trial is summarized in `summary.csv` as
+`adaptive_aligned_region_restore`. Its source run directories are
+`runs/r1_aligned_tju_adaptive`, `runs/r1_aligned_nasa_adaptive`, and
+`runs/r1_aligned_panasonic_adaptive`; those directories are intentionally
+ignored by Git because they contain checkpoints and epoch logs.
