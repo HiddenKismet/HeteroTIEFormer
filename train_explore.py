@@ -222,6 +222,8 @@ def main():
     ap.add_argument('--d-model', type=int, default=16)
     ap.add_argument('--batch-size', type=int, default=256)
     ap.add_argument('--rollout-horizon', type=int, default=4)
+    ap.add_argument('--rollout-loss-weight', type=float, default=1.0,
+                    help='weight of the fully free-running rollout MAE in training')
     ap.add_argument('--delta-scale', type=float, default=10.0)
     ap.add_argument('--selector-tau', type=float, default=1.5)
     ap.add_argument('--selector-tau-final', type=float, default=None)
@@ -231,6 +233,9 @@ def main():
     ap.add_argument('--selector-entropy-weight', type=float, default=5e-3)
     ap.add_argument('--out', required=True)
     args = ap.parse_args()
+
+    if args.rollout_loss_weight < 0:
+        raise ValueError('--rollout-loss-weight must be non-negative')
 
     torch.set_num_threads(1)
     torch.set_num_interop_threads(1)
@@ -281,22 +286,34 @@ def main():
     (out / 'config.json').write_text(json.dumps(config, indent=2))
     with (out / 'epochs.csv').open('w', newline='') as fh:
         writer = csv.writer(fh)
-        writer.writerow(['epoch', 'train_mae', 'val_rollout_mae', 'val_1step_mae'])
+        writer.writerow([
+            'epoch', 'train_objective', 'train_1step_mae', 'train_rollout_mae',
+            'val_rollout_mae', 'val_1step_mae'
+        ])
         for epoch in range(args.epochs):
-            tf = 1.0 + (0.2 - 1.0) * epoch / max(1, args.epochs - 1)
             if args.variant in ('adaptive', 'residual'):
                 tau_final = args.selector_tau if args.selector_tau_final is None else args.selector_tau_final
                 tau = args.selector_tau + (tau_final - args.selector_tau) * epoch / max(1, args.epochs - 1)
                 model.base.set_selector(tau=tau)
-            model.train(); train_total = 0.0
+            model.train()
+            train_total = 0.0
+            train_one_total = 0.0
+            train_roll_total = 0.0
             for x, future in train_loader:
                 opt.zero_grad()
+                one_step = model(x).squeeze(-1)
                 if args.variant in ('adaptive', 'residual'):
-                    pred, gates = rollout(model, x, future, tf, feedback_low, feedback_high, True)
+                    # The second term is genuinely free-running: every feedback
+                    # value comes from the model prediction (with stop-gradient
+                    # through the feedback path to keep optimization bounded).
+                    pred, gates = rollout(model, x, future, 0.0,
+                                          feedback_low, feedback_high, True)
                 else:
-                    pred = rollout(model, x, future, tf, feedback_low, feedback_high)
+                    pred = rollout(model, x, future, 0.0, feedback_low, feedback_high)
                     gates = []
-                loss = (pred - future).abs().mean()
+                one_loss = (one_step - future[:, 0]).abs().mean()
+                rollout_loss = (pred - future).abs().mean()
+                loss = one_loss + args.rollout_loss_weight * rollout_loss
                 reg = selector_regularization(gates)
                 if reg is not None:
                     budget_penalty, entropy_penalty, _, _ = reg
@@ -305,6 +322,8 @@ def main():
                 torch.nn.utils.clip_grad_norm_(model.parameters(), 0.2)
                 opt.step()
                 train_total += loss.item() * len(x)
+                train_one_total += one_loss.item() * len(x)
+                train_roll_total += rollout_loss.item() * len(x)
             model.eval(); val_total = 0.0; one_total = 0.0
             with torch.no_grad():
                 for x, future in val_loader:
@@ -312,8 +331,15 @@ def main():
                     val_total += (rollout(model, x, future, 0.0, feedback_low, feedback_high) - future).abs().sum().item()
             val_score = val_total / (len(val_ds) * horizon)
             one_score = one_total / len(val_ds)
-            writer.writerow([epoch + 1, train_total / len(train_ds), val_score, one_score]); fh.flush()
-            print(f'epoch={epoch + 1} tf={tf:.3f} train={train_total / len(train_ds):.6f} '
+            train_objective = train_total / len(train_ds)
+            train_one = train_one_total / len(train_ds)
+            train_roll = train_roll_total / len(train_ds)
+            writer.writerow([
+                epoch + 1, train_objective, train_one, train_roll, val_score, one_score
+            ]); fh.flush()
+            print(f'epoch={epoch + 1} rollout_w={args.rollout_loss_weight:.3f} '
+                  f'train={train_objective:.6f} train_1step={train_one:.6f} '
+                  f'train_roll={train_roll:.6f} '
                   f'val_roll={val_score:.6f} val_1step={one_score:.6f}', flush=True)
             if val_score < best:
                 best, stale = val_score, 0

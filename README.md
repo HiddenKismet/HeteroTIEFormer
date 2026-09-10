@@ -44,6 +44,7 @@ python train_explore.py \
   --normalization train_minmax \
   --start-cycles 300 450 600 \
   --epochs 150 --patience 60 --rollout-horizon 4 \
+  --rollout-loss-weight 1.0 \
   --seed 42 --out runs/tju_adaptive
 ```
 
@@ -51,6 +52,17 @@ The evaluator reports both observed-history and free-running recursive
 MAE/RMSE/R², plus EOL-based RUL AE/RE.  `--variant omni` is the fixed-patch
 baseline; `uniform` is a four-candidate fixed mixture; `residual` is an
 exploratory fine-scale-anchor control.
+
+The rollout-aware objective is
+
+```text
+L = L_1step + rollout_loss_weight * L_free-rollout
+```
+
+where `L_free-rollout` feeds the model's own previous prediction back into the
+next window.  The default weight is `1.0`; feedback is stop-gradient during
+optimization so the model is trained on its own-state distribution without
+unbounded backpropagation through the entire horizon.
 
 ## Tracked exploration (seed 42)
 
