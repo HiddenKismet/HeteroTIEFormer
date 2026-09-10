@@ -28,7 +28,7 @@ python -u train_explore.py \
   --test-cell 'CALCE_CX2-16_prism_LCO_25C_0-100_0.5/0.5C_a' \
   --rated 1.35 --normalization train_minmax \
   --start-cycles 300 400 500 \
-  --epochs 150 --patience 60 --seed 42 \
+  --epochs 50 --patience 10 --seed 42 \
   --d-model 16 --batch-size 1024 --rollout-horizon 4 \
   --torch-threads 16 --torch-interop-threads 1 \
   --train-objective scheduled_sampling \
@@ -44,7 +44,7 @@ python -u train_explore.py \
   --test-cell 'CALCE_CX2-16_prism_LCO_25C_0-100_0.5/0.5C_a' \
   --rated 1.35 --normalization train_minmax \
   --start-cycles 300 400 500 \
-  --epochs 150 --patience 60 --seed 42 \
+  --epochs 50 --patience 10 --seed 42 \
   --d-model 16 --batch-size 1024 --rollout-horizon 4 \
   --torch-threads 16 --torch-interop-threads 1 \
   --train-objective scheduled_sampling \

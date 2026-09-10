@@ -43,7 +43,7 @@ python train_explore.py \
   --test-cell CY25_1 --rated 2.5 \
   --normalization train_minmax \
   --start-cycles 300 450 600 \
-  --epochs 150 --patience 60 --rollout-horizon 4 \
+  --epochs 50 --patience 10 --rollout-horizon 4 \
   --rollout-loss-weight 1.0 \
   --primary-protocol observed_history \
   --seed 42 --out runs/tju_adaptive
@@ -56,7 +56,7 @@ disable auxiliary selector priors:
 python train_explore.py \
   --variant adaptive --data-file external_data/TJU_Data.npy \
   --test-cell CY25_1 --rated 2.5 --normalization train_minmax \
-  --start-cycles 300 450 600 --epochs 150 --patience 60 \
+  --start-cycles 300 450 600 --epochs 50 --patience 10 \
   --rollout-horizon 4 --train-objective one_step \
   --selector-budget-weight 0 --selector-entropy-weight 0 \
   --primary-protocol observed_history --seed 42 \
@@ -108,8 +108,8 @@ operation exactly. The original Omni source and baseline are unchanged;
 `--variant omni --regional-restore aligned` is rejected. The aligned mode applies
 to all four candidates, including P=2, in adaptive, uniform and residual routing.
 It adds no parameters and does not change Local restoration, RCA weights or
-amplitudes, the selector, TCEM, the loss, or early stopping (150 epochs / patience
-60 by default). It is a layout correction, not a new attention mechanism.
+amplitudes, the selector, TCEM, the loss, or early stopping (50 epochs / patience
+10 by default). It is a layout correction, not a new attention mechanism.
 
 The mode is recorded in `config.json`, the checkpoint's `config`, and the new
 metrics. The gate diagnostic restores this setting; configurations without it

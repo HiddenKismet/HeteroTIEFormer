@@ -1,0 +1,15 @@
+{
+  "variant": "adaptive",
+  "regional_restore": "aligned",
+  "train_objective": "scheduled_sampling",
+  "data_file": "external_data/NASA_Data.npy",
+  "test_cell": "B0005",
+  "rated": 2.0,
+  "normalization": "train_minmax",
+  "start_cycles": [100, 120, 140],
+  "epochs": 150,
+  "patience": 60,
+  "rollout_horizon": 4,
+  "seed": 42,
+  "source_run": "runs/r1_aligned_nasa_adaptive"
+}

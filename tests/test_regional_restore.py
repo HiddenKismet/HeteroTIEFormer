@@ -16,7 +16,7 @@ import diagnose_gate_controls
 import train_explore
 from HeteroTIEFormer import CandidateBranch, HeteroTIEFormer
 from OmniTIEFormer import OmniTIEFormer
-from train_explore import RelativeCapacityForecaster, build_model, split_window_indices
+from train_explore import RelativeCapacityForecaster, aggregate, build_model, evaluate_one, split_window_indices
 
 
 SCALES = (2, 4, 8, 16)
@@ -59,6 +59,15 @@ class RegionalRestoreTests(unittest.TestCase):
     def test_target_disjoint_split_rejects_short_sparse_trajectory(self):
         with self.assertRaises(ValueError):
             split_window_indices(22, 16, 4)
+
+    def test_rul_is_undefined_when_start_is_at_measured_eol(self):
+        q = np.concatenate([np.ones(64), np.array([0.8, 0.79, 0.78])]).astype(float)
+        cycles = np.arange(1.0, len(q) + 1)
+        model = RelativeCapacityForecaster(build_model('omni', 16)).eval()
+        row = evaluate_one(model, q, cycles, 64, 0.0, 1.0, 0.8, -0.25, 1.25)
+        self.assertIsNone(row['observed_rul_ae'])
+        self.assertIsNone(row['observed_rul_re'])
+        self.assertNotIn('observed_AAE_cycles', aggregate([row], 'observed'))
 
     def test_patch_weights_return_to_their_own_time_positions(self):
         for p in SCALES:
@@ -200,7 +209,7 @@ class RegionalRestoreTests(unittest.TestCase):
             config = json.loads((run / 'config.json').read_text())
             metrics = json.loads((run / 'metrics.json').read_text())
             checkpoint = torch.load(run / 'model.pt', map_location='cpu', weights_only=True)
-            self.assertEqual(config['patience'], 60)
+            self.assertEqual(config['patience'], 10)
             self.assertEqual(config['seed'], 42)
             self.assertEqual(config['regional_restore'], 'aligned')
             self.assertEqual(config['train_objective'], 'one_step')

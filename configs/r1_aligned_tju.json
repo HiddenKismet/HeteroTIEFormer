@@ -1,0 +1,15 @@
+{
+  "variant": "adaptive",
+  "regional_restore": "aligned",
+  "train_objective": "scheduled_sampling",
+  "data_file": "external_data/TJU_Data.npy",
+  "test_cell": "CY25_1",
+  "rated": 2.5,
+  "normalization": "train_minmax",
+  "start_cycles": [300, 450, 600],
+  "epochs": 150,
+  "patience": 60,
+  "rollout_horizon": 4,
+  "seed": 42,
+  "source_run": "runs/r1_aligned_tju_adaptive"
+}

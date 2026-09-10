@@ -236,8 +236,14 @@ def evaluate_one(model, q, cycles, start, norm_min, norm_range, eol_norm,
     def rul_metrics(pred_eol):
         if actual is None or pred_eol is None:
             return None, None
+        # A requested start at/after the measured EOL has no positive RUL
+        # denominator.  Keep the trajectory metrics, but mark both RUL
+        # quantities undefined so aggregation cannot manufacture an infinity.
+        remaining = actual - origin
+        if remaining <= 1e-12:
+            return None, None
         ae = abs(actual - pred_eol)
-        return float(ae), float(ae / (actual - origin))
+        return float(ae), float(ae / remaining)
 
     obs_ae, obs_re = rul_metrics(obs_eol)
     rec_ae, rec_re = rul_metrics(rec_eol)
@@ -272,6 +278,7 @@ def aggregate(rows, prefix):
     res = [r[prefix + '_rul_re'] for r in rows if r[prefix + '_rul_re'] is not None]
     if aes:
         out[prefix + '_AAE_cycles'] = float(np.mean(aes))
+    if res:
         out[prefix + '_ARE'] = float(np.mean(res))
     return out
 
@@ -290,8 +297,8 @@ def main():
     ap.add_argument('--eol-ratio', type=float, default=0.7)
     ap.add_argument('--normalization', choices=['rated', 'train_minmax'], default='train_minmax')
     ap.add_argument('--start-cycles', type=int, nargs='+', required=True)
-    ap.add_argument('--epochs', type=int, default=150)
-    ap.add_argument('--patience', type=int, default=60)
+    ap.add_argument('--epochs', type=int, default=50)
+    ap.add_argument('--patience', type=int, default=10)
     ap.add_argument('--seed', type=int, default=42)
     ap.add_argument('--d-model', type=int, default=16)
     ap.add_argument('--batch-size', type=int, default=256)
