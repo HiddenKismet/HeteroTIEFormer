@@ -1,0 +1,38 @@
+{
+  "variant": "adaptive",
+  "data_file": "external_data/NASA_Data.npy",
+  "test_cell": "B0005",
+  "rated": 2.0,
+  "eol_ratio": 0.7,
+  "normalization": "train_minmax",
+  "start_cycles": [
+    100,
+    120,
+    140
+  ],
+  "epochs": 150,
+  "patience": 60,
+  "seed": 42,
+  "d_model": 16,
+  "batch_size": 256,
+  "rollout_horizon": 4,
+  "delta_scale": 10.0,
+  "selector_tau": 1.0,
+  "selector_tau_final": 0.5,
+  "selector_hard": true,
+  "selector_init_std": 0.02,
+  "selector_budget_weight": 0.02,
+  "selector_entropy_weight": 0.02,
+  "out": "runs/nasa_adaptive_hard_budget_fix",
+  "normalization_min": 1.15381833159625,
+  "normalization_max": 2.035337591005598,
+  "normalization_range": 0.8815192594093479,
+  "eol_threshold_Ah": 1.4,
+  "feedback_bounds": [
+    -0.25,
+    1.25
+  ],
+  "train_samples": 172,
+  "val_samples": 86,
+  "parameters": 111890
+}

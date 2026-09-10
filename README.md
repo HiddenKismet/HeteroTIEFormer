@@ -69,7 +69,24 @@ training/evaluation, maximum 150 epochs, patience 60.  TJU holds out
 | NASA / uniform | 0.012342 | 0.015005 | 0.739480 | 0.042211 | 0.044499 | -0.185033 |
 | NASA / residual probe | **0.007283** | **0.010820** | **0.828519** | 0.023017 | **0.026027** | **0.498960** |
 
-The selector-control diagnostic found near-uniform probabilities in the first
-V0.1 checkpoints (entropy ≈ `log 4`), so the residual improvement should not
-be attributed to successful adaptive routing yet.  The next controlled step is
-to test hard/low-temperature selector training and retain the same protocol.
+The first V0.1 checkpoints had near-uniform probabilities (entropy ≈ `log 4`),
+and an audit found that selector regularization was accidentally reading a
+detached gate tensor.  `train_explore.py` now exposes the non-detached
+`latest_gate_probs` for the regularization loss while retaining detached gates
+for diagnostics.  A small round3 follow-up tested low-temperature annealing
+and hard routing after this fix; its compact records are the `*_fix.json`
+files in `results/`.
+
+Round3 did make hard routing non-uniform, but it did not improve the
+cross-cell recursive protocol.  The best earlier residual probe remains the
+strongest TJU result (`recursive MAE=0.012151`), while the best round3 TJU
+hard-adaptive run reached `0.029317`.  On NASA, the best earlier Omni result
+was `0.022829`; round3 hard-adaptive reached `0.025932`.  Thus the current
+default should remain the round1 residual probe until a selector is trained
+with a rollout-aware objective.
+
+The post-fix gate-control checks illustrate the failure mode.  With scale order
+`P={2,4,8,16}`, hard adaptive routing selected approximately `[0.0039, 0.9961,
+0, 0]` on TJU and `[0.9856, 0.0096, 0, 0.0048]` on NASA; the soft residual
+run stayed close to uniform.  These controls are diagnostic evidence, not a
+claim that the selector has learned the desired degradation semantics.

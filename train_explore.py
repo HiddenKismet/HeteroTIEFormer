@@ -65,6 +65,12 @@ class RelativeCapacityForecaster(torch.nn.Module):
     def latest_gate(self):
         return getattr(self.base, 'latest_gate', None)
 
+    @property
+    def latest_gate_probs(self):
+        # Keep the non-detached probabilities for selector regularization.
+        # ``latest_gate`` is intentionally detached for diagnostics/logging.
+        return getattr(self.base, 'latest_gate_probs', None)
+
     def forward(self, x):
         anchor = x[:, -1, 0].unsqueeze(-1)
         relative = (x - anchor[:, None, :]) * self.delta_scale
@@ -81,8 +87,12 @@ def rollout(model, context, future=None, teacher_forcing=0.0,
     for step in range(horizon):
         pred = model(history).squeeze(-1)
         predictions.append(pred)
-        if collect_gates and getattr(model, 'latest_gate', None) is not None:
-            gates.append(model.latest_gate)
+        if collect_gates:
+            gate = getattr(model, 'latest_gate_probs', None)
+            if gate is None:
+                gate = getattr(model, 'latest_gate', None)
+            if gate is not None:
+                gates.append(gate)
         if step + 1 == horizon:
             break
         feedback = pred.detach().clamp(feedback_low, feedback_high)

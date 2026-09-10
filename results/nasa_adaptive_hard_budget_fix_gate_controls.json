@@ -1,0 +1,298 @@
+{
+  "learned": {
+    "mean_gate_by_scale": [
+      0.9855769276618958,
+      0.009615384973585606,
+      0.0,
+      0.004807692486792803
+    ],
+    "expected_patches_per_16_cycles": 7.927884653676301,
+    "gate_entropy": 0.08463740348815918,
+    "observed": {
+      "observed_AMAE_Ah": 0.01155782196669629,
+      "observed_ARMSE_Ah": 0.015425168246909192,
+      "observed_AR2": 0.6804247484988725,
+      "observed_AAE_cycles": 1.3333333333333333,
+      "observed_ARE": 0.13675213675213674
+    },
+    "recursive": {
+      "recursive_AMAE_Ah": 0.02593161664808039,
+      "recursive_ARMSE_Ah": 0.028965164410611408,
+      "recursive_AR2": 0.43921445254124886,
+      "recursive_AAE_cycles": 7.0,
+      "recursive_ARE": 0.3547008547008547
+    },
+    "start_points": [
+      {
+        "requested_start_cycle": 100,
+        "origin_cycle": 99.0,
+        "observed_mae_Ah": 0.01320771791696814,
+        "observed_rmse_Ah": 0.016289930998397966,
+        "observed_r2": 0.9238867622467817,
+        "observed_pred_eol_cycle": 127.0,
+        "observed_rul_ae": 2.0,
+        "observed_rul_re": 0.07692307692307693,
+        "recursive_mae_Ah": 0.050651155122587346,
+        "recursive_rmse_Ah": 0.05306905216739558,
+        "recursive_r2": 0.19219903193099763,
+        "pred_eol_cycle": 144.0,
+        "recursive_rul_ae": 19.0,
+        "recursive_rul_re": 0.7307692307692307
+      },
+      {
+        "requested_start_cycle": 120,
+        "origin_cycle": 119.0,
+        "observed_mae_Ah": 0.010775748671821695,
+        "observed_rmse_Ah": 0.014390109298565611,
+        "observed_r2": 0.8593421938525543,
+        "observed_pred_eol_cycle": 127.0,
+        "observed_rul_ae": 2.0,
+        "observed_rul_re": 0.3333333333333333,
+        "recursive_mae_Ah": 0.017978720108337124,
+        "recursive_rmse_Ah": 0.01966337151675625,
+        "recursive_r2": 0.7373655914202062,
+        "pred_eol_cycle": 127.0,
+        "recursive_rul_ae": 2.0,
+        "recursive_rul_re": 0.3333333333333333
+      },
+      {
+        "requested_start_cycle": 140,
+        "origin_cycle": 139.0,
+        "observed_mae_Ah": 0.010689999311299037,
+        "observed_rmse_Ah": 0.015595464443764001,
+        "observed_r2": 0.2580452893972811,
+        "observed_pred_eol_cycle": 140.0,
+        "observed_rul_ae": 0.0,
+        "observed_rul_re": 0.0,
+        "recursive_mae_Ah": 0.009164974713316698,
+        "recursive_rmse_Ah": 0.014163069547682384,
+        "recursive_r2": 0.3880787342725427,
+        "pred_eol_cycle": 140.0,
+        "recursive_rul_ae": 0.0,
+        "recursive_rul_re": 0.0
+      }
+    ]
+  },
+  "uniform": {
+    "mean_gate_by_scale": [
+      0.25,
+      0.25,
+      0.25,
+      0.25
+    ],
+    "expected_patches_per_16_cycles": 3.75,
+    "gate_entropy": 1.3862943649291992,
+    "observed": {
+      "observed_AMAE_Ah": 0.013124295814975151,
+      "observed_ARMSE_Ah": 0.016625333446437997,
+      "observed_AR2": 0.6667308687216336,
+      "observed_AAE_cycles": 2.0,
+      "observed_ARE": 0.20512820512820515
+    },
+    "recursive": {
+      "recursive_AMAE_Ah": 0.032679839784381014,
+      "recursive_ARMSE_Ah": 0.03515126836297729,
+      "recursive_AR2": 0.25118970809218255,
+      "recursive_AAE_cycles": 12.0,
+      "recursive_ARE": 0.9316239316239315
+    },
+    "start_points": [
+      {
+        "requested_start_cycle": 100,
+        "origin_cycle": 99.0,
+        "observed_mae_Ah": 0.01572142788562584,
+        "observed_rmse_Ah": 0.018692686736365434,
+        "observed_r2": 0.8997775158932441,
+        "observed_pred_eol_cycle": 128.0,
+        "observed_rul_ae": 3.0,
+        "observed_rul_re": 0.11538461538461539,
+        "recursive_mae_Ah": 0.062256351332574546,
+        "recursive_rmse_Ah": 0.06454791038863782,
+        "recursive_r2": -0.19505001594390636,
+        "pred_eol_cycle": 150.0,
+        "recursive_rul_ae": 25.0,
+        "recursive_rul_re": 0.9615384615384616
+      },
+      {
+        "requested_start_cycle": 120,
+        "origin_cycle": 119.0,
+        "observed_mae_Ah": 0.012454868446437119,
+        "observed_rmse_Ah": 0.01568862603730749,
+        "observed_r2": 0.832811856101639,
+        "observed_pred_eol_cycle": 128.0,
+        "observed_rul_ae": 3.0,
+        "observed_rul_re": 0.5,
+        "recursive_mae_Ah": 0.025730073579528296,
+        "recursive_rmse_Ah": 0.02774240021305169,
+        "recursive_r2": 0.4772142761712155,
+        "pred_eol_cycle": 136.0,
+        "recursive_rul_ae": 11.0,
+        "recursive_rul_re": 1.8333333333333333
+      },
+      {
+        "requested_start_cycle": 140,
+        "origin_cycle": 139.0,
+        "observed_mae_Ah": 0.011196591112862496,
+        "observed_rmse_Ah": 0.015494687565641062,
+        "observed_r2": 0.2676032341700174,
+        "observed_pred_eol_cycle": 140.0,
+        "observed_rul_ae": 0.0,
+        "observed_rul_re": 0.0,
+        "recursive_mae_Ah": 0.010053094441040189,
+        "recursive_rmse_Ah": 0.01316349448724237,
+        "recursive_r2": 0.47140486404923854,
+        "pred_eol_cycle": 140.0,
+        "recursive_rul_ae": 0.0,
+        "recursive_rul_re": 0.0
+      }
+    ]
+  },
+  "reverse": {
+    "mean_gate_by_scale": [
+      0.004807692486792803,
+      0.0,
+      0.009615384973585606,
+      0.9855769276618958
+    ],
+    "expected_patches_per_16_cycles": 1.0432692375034094,
+    "gate_entropy": 0.08463740348815918,
+    "observed": {
+      "observed_AMAE_Ah": 0.013726112121715551,
+      "observed_ARMSE_Ah": 0.01670488762989774,
+      "observed_AR2": 0.6861751800610496,
+      "observed_AAE_cycles": 2.6666666666666665,
+      "observed_ARE": 0.2735042735042735
+    },
+    "recursive": {
+      "recursive_AMAE_Ah": 0.041216615383495976,
+      "recursive_ARMSE_Ah": 0.04345445069893491,
+      "recursive_AR2": -0.13464154829835473,
+      "recursive_AAE_cycles": 13.333333333333334,
+      "recursive_ARE": 0.982905982905983
+    },
+    "start_points": [
+      {
+        "requested_start_cycle": 100,
+        "origin_cycle": 99.0,
+        "observed_mae_Ah": 0.01671988706790565,
+        "observed_rmse_Ah": 0.019487790208805367,
+        "observed_r2": 0.8910701517600663,
+        "observed_pred_eol_cycle": 129.0,
+        "observed_rul_ae": 4.0,
+        "observed_rul_re": 0.15384615384615385,
+        "recursive_mae_Ah": 0.0753402046768153,
+        "recursive_rmse_Ah": 0.07823602696782342,
+        "recursive_r2": -0.7556392542390407,
+        "pred_eol_cycle": 154.0,
+        "recursive_rul_ae": 29.0,
+        "recursive_rul_re": 1.1153846153846154
+      },
+      {
+        "requested_start_cycle": 120,
+        "origin_cycle": 119.0,
+        "observed_mae_Ah": 0.013110067286184452,
+        "observed_rmse_Ah": 0.015911562028960404,
+        "observed_r2": 0.8280265964282979,
+        "observed_pred_eol_cycle": 129.0,
+        "observed_rul_ae": 4.0,
+        "observed_rul_re": 0.6666666666666666,
+        "recursive_mae_Ah": 0.033911507458077104,
+        "recursive_rmse_Ah": 0.03653610595175992,
+        "recursive_r2": 0.09326543754678851,
+        "pred_eol_cycle": 136.0,
+        "recursive_rul_ae": 11.0,
+        "recursive_rul_re": 1.8333333333333333
+      },
+      {
+        "requested_start_cycle": 140,
+        "origin_cycle": 139.0,
+        "observed_mae_Ah": 0.011348382011056549,
+        "observed_rmse_Ah": 0.014715310651927443,
+        "observed_r2": 0.3394287919947847,
+        "observed_pred_eol_cycle": 140.0,
+        "observed_rul_ae": 0.0,
+        "observed_rul_re": 0.0,
+        "recursive_mae_Ah": 0.014398134015595528,
+        "recursive_rmse_Ah": 0.015591219177221376,
+        "recursive_r2": 0.25844917179718796,
+        "pred_eol_cycle": 140.0,
+        "recursive_rul_ae": 0.0,
+        "recursive_rul_re": 0.0
+      }
+    ]
+  },
+  "region_shuffle": {
+    "mean_gate_by_scale": [
+      0.9855769276618958,
+      0.009615384973585606,
+      0.0,
+      0.004807692486792803
+    ],
+    "expected_patches_per_16_cycles": 7.927884653676301,
+    "gate_entropy": 0.08463740348815918,
+    "observed": {
+      "observed_AMAE_Ah": 0.011552793090068658,
+      "observed_ARMSE_Ah": 0.015355498977900816,
+      "observed_AR2": 0.6842141126209804,
+      "observed_AAE_cycles": 1.3333333333333333,
+      "observed_ARE": 0.13675213675213674
+    },
+    "recursive": {
+      "recursive_AMAE_Ah": 0.026002819352927472,
+      "recursive_ARMSE_Ah": 0.029038330784001556,
+      "recursive_AR2": 0.436982413538954,
+      "recursive_AAE_cycles": 7.0,
+      "recursive_ARE": 0.3547008547008547
+    },
+    "start_points": [
+      {
+        "requested_start_cycle": 100,
+        "origin_cycle": 99.0,
+        "observed_mae_Ah": 0.013204566645313926,
+        "observed_rmse_Ah": 0.01624883622550863,
+        "observed_r2": 0.9242703011190414,
+        "observed_pred_eol_cycle": 127.0,
+        "observed_rul_ae": 2.0,
+        "observed_rul_re": 0.07692307692307693,
+        "recursive_mae_Ah": 0.05086476323712858,
+        "recursive_rmse_Ah": 0.05328855128756602,
+        "recursive_r2": 0.18550291492411308,
+        "pred_eol_cycle": 144.0,
+        "recursive_rul_ae": 19.0,
+        "recursive_rul_re": 0.7307692307692307
+      },
+      {
+        "requested_start_cycle": 120,
+        "origin_cycle": 119.0,
+        "observed_mae_Ah": 0.010771311166839234,
+        "observed_rmse_Ah": 0.014324534455815292,
+        "observed_r2": 0.8606212109342339,
+        "observed_pred_eol_cycle": 127.0,
+        "observed_rul_ae": 2.0,
+        "observed_rul_re": 0.3333333333333333,
+        "recursive_mae_Ah": 0.017978720108337124,
+        "recursive_rmse_Ah": 0.01966337151675625,
+        "recursive_r2": 0.7373655914202062,
+        "pred_eol_cycle": 127.0,
+        "recursive_rul_ae": 2.0,
+        "recursive_rul_re": 0.3333333333333333
+      },
+      {
+        "requested_start_cycle": 140,
+        "origin_cycle": 139.0,
+        "observed_mae_Ah": 0.01068250145805281,
+        "observed_rmse_Ah": 0.01549312625237853,
+        "observed_r2": 0.2677508258096659,
+        "observed_pred_eol_cycle": 140.0,
+        "observed_rul_ae": 0.0,
+        "observed_rul_re": 0.0,
+        "recursive_mae_Ah": 0.009164974713316698,
+        "recursive_rmse_Ah": 0.014163069547682384,
+        "recursive_r2": 0.3880787342725427,
+        "pred_eol_cycle": 140.0,
+        "recursive_rul_ae": 0.0,
+        "recursive_rul_re": 0.0
+      }
+    ]
+  }
+}
