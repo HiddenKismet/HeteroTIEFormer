@@ -123,7 +123,7 @@ def selector_regularization(gates, budget=4.0, entropy_target=1.0):
 
 
 def build_model(variant, d_model, selector_tau=1.5, selector_hard=False,
-                selector_init_std=0.0, regional_restore='legacy'):
+                selector_init_std=0.0, regional_restore='legacy', seq_len=64):
     if regional_restore not in ('legacy', 'aligned'):
         raise ValueError('regional_restore must be legacy or aligned')
     common = dict(d_model=d_model, n_heads=4, e_layers=1, dropout=0.1)
@@ -131,8 +131,8 @@ def build_model(variant, d_model, selector_tau=1.5, selector_hard=False,
         if regional_restore != 'legacy':
             raise ValueError('aligned Regional restore applies only to Hetero variants; '
                              'the Omni reference remains unchanged')
-        return OmniTIEFormer(patch_len=2, seq_len=64, pred_len=1, enc_in=1, **common)
-    model = HeteroTIEFormer(routing=variant, tau=selector_tau,
+        return OmniTIEFormer(patch_len=2, seq_len=seq_len, pred_len=1, enc_in=1, **common)
+    model = HeteroTIEFormer(seq_len=seq_len, routing=variant, tau=selector_tau,
                             selector_hard=selector_hard,
                             regional_restore=regional_restore, **common)
     if selector_init_std > 0 and model.selector is not None:
@@ -207,6 +207,7 @@ def evaluate_one(model, q, cycles, start, norm_min, norm_range, eol_norm,
     return {
         'requested_start_cycle': int(cycles[start]),
         'origin_cycle': origin,
+        'actual_eol_cycle': actual,
         'observed_mae_Ah': float(np.abs(obs_a - true_a).mean()),
         'observed_rmse_Ah': float(np.sqrt(np.mean((obs_a - true_a) ** 2))),
         'observed_r2': r2(true_a, obs_a),
@@ -245,6 +246,8 @@ def main():
                     help='Regional patch restoration; aligned fixes the time/feature '
                          'layout in Hetero candidates only (legacy preserves old runs)')
     ap.add_argument('--data-file', required=True)
+    ap.add_argument('--window', type=int, default=64,
+                    help='number of observations in each context window (default: 64)')
     ap.add_argument('--test-cell', required=True)
     ap.add_argument('--rated', type=float, required=True)
     ap.add_argument('--eol-ratio', type=float, default=0.7)
@@ -284,6 +287,8 @@ def main():
         ap.error('--regional-restore=aligned applies only to Hetero variants')
     if args.rollout_loss_weight < 0:
         raise ValueError('--rollout-loss-weight must be non-negative')
+    if args.window < 2:
+        raise ValueError('--window must be at least 2')
     if args.train_objective == 'scheduled_sampling' and args.rollout_loss_weight != 1.0:
         raise ValueError('--rollout-loss-weight must remain 1.0 with scheduled_sampling')
 
@@ -291,6 +296,8 @@ def main():
         raise ValueError('torch thread counts must be positive')
     torch.set_num_threads(args.torch_threads)
     torch.set_num_interop_threads(args.torch_interop_threads)
+    global WINDOW
+    WINDOW = int(args.window)
     seed_everything(args.seed)
     root = Path(__file__).resolve().parent
     data_path = Path(args.data_file)
@@ -310,9 +317,20 @@ def main():
     horizon = args.rollout_horizon
     train_pairs, val_pairs = [], []
     for _, (_, q) in train_cells.items():
-        cut = int(len(q) * 0.8)
-        train_idx = np.arange(WINDOW, cut - horizon + 1)
-        val_idx = np.arange(max(cut, WINDOW), len(q) - horizon + 1)
+        # Split the windows that actually exist after applying the context
+        # length and forecast horizon.  Splitting the raw trajectory length
+        # first leaves no training samples for short, sparsely sampled public
+        # datasets such as Oxford (about 80 points per cell with WINDOW=64).
+        available = np.arange(WINDOW, len(q) - horizon + 1)
+        if len(available) < 2:
+            raise ValueError(
+                f'trajectory has too few usable windows: {len(q)} points, '
+                f'horizon={horizon}, window={WINDOW}'
+            )
+        cut = int(np.ceil(0.8 * len(available)))
+        cut = min(max(cut, 1), len(available) - 1)
+        train_idx = available[:cut]
+        val_idx = available[cut:]
         train_pairs.append(make_windows(q, train_idx, horizon))
         val_pairs.append(make_windows(q, val_idx, horizon))
     train_ds = TensorDataset(torch.cat([x for x, _ in train_pairs]), torch.cat([y for _, y in train_pairs]))
@@ -324,7 +342,7 @@ def main():
     model = RelativeCapacityForecaster(
         build_model(args.variant, args.d_model, args.selector_tau,
                     args.selector_hard, args.selector_init_std,
-                    regional_restore=args.regional_restore),
+                    regional_restore=args.regional_restore, seq_len=WINDOW),
         args.delta_scale,
     )
     opt = torch.optim.Adam(model.parameters(), lr=1e-3)
