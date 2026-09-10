@@ -1,0 +1,13 @@
+__pycache__/
+*.py[cod]
+.venv/
+data/
+external_data/
+*.npy
+*.npz
+*.pt
+*.pth
+runs/
+logs/
+*.log
+.DS_Store
