@@ -4,6 +4,12 @@ The runner keeps the original Omni network and uses a torch-only loop so that
 the diagnostics are independent of pytorch-forecasting/Lightning.  It supports
 the original Omni branch, V0.1 adaptive routing, a uniform gate control, and the
 fine-scale residual routing probe.
+
+The primary evaluation protocol is ``observed_history``: every prediction is
+made from a window containing the measured capacity values.  A fully
+free-running rollout is still computed and recorded as a secondary stability
+diagnostic, but it is not used to select the primary checkpoint unless the
+caller explicitly requests ``--primary-protocol recursive``.
 """
 
 from __future__ import annotations
@@ -117,12 +123,18 @@ def selector_regularization(gates, budget=4.0, entropy_target=1.0):
 
 
 def build_model(variant, d_model, selector_tau=1.5, selector_hard=False,
-                selector_init_std=0.0):
+                selector_init_std=0.0, regional_restore='legacy'):
+    if regional_restore not in ('legacy', 'aligned'):
+        raise ValueError('regional_restore must be legacy or aligned')
     common = dict(d_model=d_model, n_heads=4, e_layers=1, dropout=0.1)
     if variant == 'omni':
+        if regional_restore != 'legacy':
+            raise ValueError('aligned Regional restore applies only to Hetero variants; '
+                             'the Omni reference remains unchanged')
         return OmniTIEFormer(patch_len=2, seq_len=64, pred_len=1, enc_in=1, **common)
     model = HeteroTIEFormer(routing=variant, tau=selector_tau,
-                            selector_hard=selector_hard, **common)
+                            selector_hard=selector_hard,
+                            regional_restore=regional_restore, **common)
     if selector_init_std > 0 and model.selector is not None:
         nn = torch.nn
         torch.nn.init.normal_(model.selector[-1].weight, mean=0.0,
@@ -132,8 +144,25 @@ def build_model(variant, d_model, selector_tau=1.5, selector_hard=False,
 
 
 def crossing(q, cycles, start, threshold):
+    """Return the first threshold crossing with linear interpolation.
+
+    The paper defines EOL at the first segment crossing rather than at the
+    first sampled cycle.  Keeping this helper shared by observed-history and
+    free-running evaluation makes the two protocols differ only in how the
+    input window is updated.
+    """
     ids = np.flatnonzero(q <= threshold)
-    return None if len(ids) == 0 else float(cycles[start + ids[0]])
+    if len(ids) == 0:
+        return None
+    i = int(ids[0])
+    if i == 0:
+        return float(cycles[start])
+    y0, y1 = float(q[i - 1]), float(q[i])
+    c0, c1 = float(cycles[start + i - 1]), float(cycles[start + i])
+    if abs(y1 - y0) <= 1e-12:
+        return c1
+    alpha = (float(threshold) - y0) / (y1 - y0)
+    return float(c0 + alpha * (c1 - c0))
 
 
 def evaluate_one(model, q, cycles, start, norm_min, norm_range, eol_norm,
@@ -159,7 +188,9 @@ def evaluate_one(model, q, cycles, start, norm_min, norm_range, eol_norm,
     actual = crossing(truth, cycles, start, eol_norm)
     obs_eol = crossing(observed, cycles, start, eol_norm)
     rec_eol = crossing(recursive, cycles, start, eol_norm)
-    origin = float(cycles[start - 1])
+    # Equation (2) in the paper defines RUL at the requested starting cycle:
+    # RUL = EOL - SP.  Do not use SP-1 here (that introduces a one-cycle bias).
+    origin = float(cycles[start])
 
     def r2(y, p):
         den = np.sum((y - y.mean()) ** 2)
@@ -210,6 +241,9 @@ def aggregate(rows, prefix):
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument('--variant', choices=['omni', 'adaptive', 'uniform', 'residual'], default='adaptive')
+    ap.add_argument('--regional-restore', choices=['legacy', 'aligned'], default='legacy',
+                    help='Regional patch restoration; aligned fixes the time/feature '
+                         'layout in Hetero candidates only (legacy preserves old runs)')
     ap.add_argument('--data-file', required=True)
     ap.add_argument('--test-cell', required=True)
     ap.add_argument('--rated', type=float, required=True)
@@ -222,6 +256,9 @@ def main():
     ap.add_argument('--d-model', type=int, default=16)
     ap.add_argument('--batch-size', type=int, default=256)
     ap.add_argument('--rollout-horizon', type=int, default=4)
+    ap.add_argument('--train-objective', choices=['free_rollout', 'scheduled_sampling'],
+                    default='free_rollout',
+                    help='training objective; scheduled_sampling reproduces round1 V0.1')
     ap.add_argument('--rollout-loss-weight', type=float, default=1.0,
                     help='weight of the fully free-running rollout MAE in training')
     ap.add_argument('--delta-scale', type=float, default=10.0)
@@ -231,11 +268,20 @@ def main():
     ap.add_argument('--selector-init-std', type=float, default=0.0)
     ap.add_argument('--selector-budget-weight', type=float, default=5e-4)
     ap.add_argument('--selector-entropy-weight', type=float, default=5e-3)
+    ap.add_argument('--primary-protocol', choices=['observed_history', 'recursive'],
+                    default='observed_history',
+                    help='protocol used for checkpoint selection and the primary '
+                         'summary; observed_history refreshes every window with '
+                         'measured capacity')
     ap.add_argument('--out', required=True)
     args = ap.parse_args()
 
+    if args.variant == 'omni' and args.regional_restore != 'legacy':
+        ap.error('--regional-restore=aligned applies only to Hetero variants')
     if args.rollout_loss_weight < 0:
         raise ValueError('--rollout-loss-weight must be non-negative')
+    if args.train_objective == 'scheduled_sampling' and args.rollout_loss_weight != 1.0:
+        raise ValueError('--rollout-loss-weight must remain 1.0 with scheduled_sampling')
 
     torch.set_num_threads(1)
     torch.set_num_interop_threads(1)
@@ -271,7 +317,8 @@ def main():
 
     model = RelativeCapacityForecaster(
         build_model(args.variant, args.d_model, args.selector_tau,
-                    args.selector_hard, args.selector_init_std),
+                    args.selector_hard, args.selector_init_std,
+                    regional_restore=args.regional_restore),
         args.delta_scale,
     )
     opt = torch.optim.Adam(model.parameters(), lr=1e-3)
@@ -288,9 +335,10 @@ def main():
         writer = csv.writer(fh)
         writer.writerow([
             'epoch', 'train_objective', 'train_1step_mae', 'train_rollout_mae',
-            'val_rollout_mae', 'val_1step_mae'
+            'val_rollout_mae', 'val_1step_mae', 'monitor_mae'
         ])
         for epoch in range(args.epochs):
+            tf = 1.0 + (0.2 - 1.0) * epoch / max(1, args.epochs - 1)
             if args.variant in ('adaptive', 'residual'):
                 tau_final = args.selector_tau if args.selector_tau_final is None else args.selector_tau_final
                 tau = args.selector_tau + (tau_final - args.selector_tau) * epoch / max(1, args.epochs - 1)
@@ -301,19 +349,34 @@ def main():
             train_roll_total = 0.0
             for x, future in train_loader:
                 opt.zero_grad()
-                one_step = model(x).squeeze(-1)
-                if args.variant in ('adaptive', 'residual'):
-                    # The second term is genuinely free-running: every feedback
-                    # value comes from the model prediction (with stop-gradient
-                    # through the feedback path to keep optimization bounded).
-                    pred, gates = rollout(model, x, future, 0.0,
-                                          feedback_low, feedback_high, True)
+                if args.train_objective == 'scheduled_sampling':
+                    if args.variant in ('adaptive', 'residual'):
+                        pred, gates = rollout(model, x, future, tf,
+                                              feedback_low, feedback_high, True)
+                    else:
+                        pred = rollout(model, x, future, tf,
+                                       feedback_low, feedback_high)
+                        gates = []
+                    # This is the historical round1 objective. The first
+                    # rollout prediction is also the one-step prediction.
+                    one_loss = (pred[:, 0] - future[:, 0]).abs().mean()
+                    rollout_loss = (pred - future).abs().mean()
+                    loss = rollout_loss
                 else:
-                    pred = rollout(model, x, future, 0.0, feedback_low, feedback_high)
-                    gates = []
-                one_loss = (one_step - future[:, 0]).abs().mean()
-                rollout_loss = (pred - future).abs().mean()
-                loss = one_loss + args.rollout_loss_weight * rollout_loss
+                    one_step = model(x).squeeze(-1)
+                    if args.variant in ('adaptive', 'residual'):
+                        # The second term is genuinely free-running: every
+                        # feedback value comes from the model prediction
+                        # (with stop-gradient through the feedback path).
+                        pred, gates = rollout(model, x, future, 0.0,
+                                              feedback_low, feedback_high, True)
+                    else:
+                        pred = rollout(model, x, future, 0.0,
+                                       feedback_low, feedback_high)
+                        gates = []
+                    one_loss = (one_step - future[:, 0]).abs().mean()
+                    rollout_loss = (pred - future).abs().mean()
+                    loss = one_loss + args.rollout_loss_weight * rollout_loss
                 reg = selector_regularization(gates)
                 if reg is not None:
                     budget_penalty, entropy_penalty, _, _ = reg
@@ -334,17 +397,27 @@ def main():
             train_objective = train_total / len(train_ds)
             train_one = train_one_total / len(train_ds)
             train_roll = train_roll_total / len(train_ds)
+            monitor_score = (one_score if args.primary_protocol == 'observed_history'
+                             else val_score)
             writer.writerow([
-                epoch + 1, train_objective, train_one, train_roll, val_score, one_score
+                epoch + 1, train_objective, train_one, train_roll, val_score, one_score,
+                monitor_score
             ]); fh.flush()
-            print(f'epoch={epoch + 1} rollout_w={args.rollout_loss_weight:.3f} '
+            print(f'epoch={epoch + 1} objective={args.train_objective} '
+                  f'tf={tf:.3f} rollout_w={args.rollout_loss_weight:.3f} '
                   f'train={train_objective:.6f} train_1step={train_one:.6f} '
                   f'train_roll={train_roll:.6f} '
-                  f'val_roll={val_score:.6f} val_1step={one_score:.6f}', flush=True)
-            if val_score < best:
-                best, stale = val_score, 0
+                  f'val_roll={val_score:.6f} val_1step={one_score:.6f} '
+                  f'monitor[{args.primary_protocol}]={monitor_score:.6f}', flush=True)
+            if monitor_score < best:
+                best, stale = monitor_score, 0
                 torch.save({'model': model.state_dict(), 'epoch': epoch + 1,
-                            'val_mae': best, 'config': config}, out / 'model.pt')
+                            # Keep val_mae for backward compatibility; it is
+                            # the recursive validation score used historically.
+                            'val_mae': val_score,
+                            'monitor_mae': best,
+                            'monitor_protocol': args.primary_protocol,
+                            'config': config}, out / 'model.pt')
             else:
                 stale += 1
             if stale >= args.patience:
@@ -364,12 +437,17 @@ def main():
         rows.append(row)
     summary = {
         'variant': args.variant,
+        'regional_restore': args.regional_restore,
+        'primary_protocol': args.primary_protocol,
         'checkpoint_epoch': int(checkpoint['epoch']),
         'best_val_mae': float(checkpoint['val_mae']),
+        'best_monitor_mae': float(checkpoint.get('monitor_mae', checkpoint['val_mae'])),
         'start_points': rows,
         'observed': aggregate(rows, 'observed'),
         'recursive': aggregate(rows, 'recursive'),
     }
+    primary_key = 'observed' if args.primary_protocol == 'observed_history' else 'recursive'
+    summary['primary'] = summary[primary_key]
     (out / 'metrics.json').write_text(json.dumps(summary, indent=2))
     print(json.dumps(summary, indent=2), flush=True)
 
