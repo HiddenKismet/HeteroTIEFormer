@@ -255,6 +255,10 @@ def main():
     ap.add_argument('--seed', type=int, default=42)
     ap.add_argument('--d-model', type=int, default=16)
     ap.add_argument('--batch-size', type=int, default=256)
+    ap.add_argument('--torch-threads', type=int, default=1,
+                    help='intra-op CPU threads for this process (default: 1)')
+    ap.add_argument('--torch-interop-threads', type=int, default=1,
+                    help='inter-op CPU threads for this process (default: 1)')
     ap.add_argument('--rollout-horizon', type=int, default=4)
     ap.add_argument('--train-objective', choices=['free_rollout', 'scheduled_sampling'],
                     default='free_rollout',
@@ -283,8 +287,10 @@ def main():
     if args.train_objective == 'scheduled_sampling' and args.rollout_loss_weight != 1.0:
         raise ValueError('--rollout-loss-weight must remain 1.0 with scheduled_sampling')
 
-    torch.set_num_threads(1)
-    torch.set_num_interop_threads(1)
+    if args.torch_threads < 1 or args.torch_interop_threads < 1:
+        raise ValueError('torch thread counts must be positive')
+    torch.set_num_threads(args.torch_threads)
+    torch.set_num_interop_threads(args.torch_interop_threads)
     seed_everything(args.seed)
     root = Path(__file__).resolve().parent
     data_path = Path(args.data_file)
