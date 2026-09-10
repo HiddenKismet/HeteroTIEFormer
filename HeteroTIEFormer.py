@@ -166,9 +166,12 @@ class HeteroTIEFormer(OmniTIEFormer):
         ``learned`` is the normal V0.1 behavior.  ``uniform`` removes
         region-wise routing, ``reverse`` mirrors scale probabilities, and
         ``region_shuffle`` moves each region's learned decision to a different
-        region.  These controls do not change trainable parameters.
+        region.  ``force_p{2,4,8,16}`` selects one candidate everywhere for a
+        fixed-scale intervention.  These controls do not change trainable
+        parameters.
         """
         allowed = {'learned', 'uniform', 'reverse', 'region_shuffle'}
+        allowed.update(f'force_p{p}' for p in self.scales)
         if mode not in allowed:
             raise ValueError(f'unknown gate mode: {mode}')
         self.gate_mode = mode
@@ -186,7 +189,12 @@ class HeteroTIEFormer(OmniTIEFormer):
 
     def _gate(self, x):
         regions = x[:, :, 0].reshape(x.shape[0], -1, self.region_len)
-        if self.gate_mode == 'uniform' or self.selector is None:
+        if self.gate_mode.startswith('force_p'):
+            scale = int(self.gate_mode[len('force_p'):])
+            index = self.scales.index(scale)
+            gate = x.new_zeros((*regions.shape[:2], 4))
+            gate[..., index] = 1.0
+        elif self.gate_mode == 'uniform' or self.selector is None:
             gate = x.new_full((*regions.shape[:2], 4), 0.25)
         else:
             logits = self.selector(regions)

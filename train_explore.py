@@ -59,6 +59,43 @@ def make_windows(q, indices, horizon):
     return torch.from_numpy(x[..., None]), torch.from_numpy(y)
 
 
+def split_window_indices(length, window, horizon, train_fraction=0.8):
+    """Return target-disjoint train/validation window starts.
+
+    A horizon longer than one makes a naive split of window *starts* leak
+    labels: the last training window would target samples that are also the
+    first validation targets.  We leave ``horizon - 1`` starts out of the
+    training set so that the target index ranges are disjoint.  The returned
+    ``validation_start`` is a raw trajectory index and is also the exclusive
+    end of the prefix used for train-only normalization.
+    """
+    if length <= window + horizon:
+        raise ValueError(
+            f'trajectory has too few points for window={window}, horizon={horizon}: '
+            f'{length}'
+        )
+    available = np.arange(window, length - horizon + 1)
+    if len(available) < horizon + 1:
+        raise ValueError(
+            f'trajectory has too few usable windows for target-disjoint split: '
+            f'{len(available)} (window={window}, horizon={horizon})'
+        )
+    cut = int(np.ceil(float(train_fraction) * len(available)))
+    cut = min(max(cut, horizon), len(available) - 1)
+    # Keep the final training target immediately before the validation target;
+    # trimming ``horizon - 1`` starts is sufficient for disjoint ranges.
+    train_count = cut - horizon + 1
+    if train_count < 1:
+        raise ValueError(
+            f'target-disjoint split leaves no training windows: '
+            f'available={len(available)}, horizon={horizon}, cut={cut}'
+        )
+    train_idx = available[:train_count]
+    val_idx = available[cut:]
+    validation_start = int(val_idx[0])
+    return train_idx, val_idx, validation_start
+
+
 class RelativeCapacityForecaster(torch.nn.Module):
     """Predict a scaled increment while exposing an absolute capacity output."""
 
@@ -263,9 +300,10 @@ def main():
     ap.add_argument('--torch-interop-threads', type=int, default=1,
                     help='inter-op CPU threads for this process (default: 1)')
     ap.add_argument('--rollout-horizon', type=int, default=4)
-    ap.add_argument('--train-objective', choices=['free_rollout', 'scheduled_sampling'],
+    ap.add_argument('--train-objective', choices=['one_step', 'free_rollout', 'scheduled_sampling'],
                     default='free_rollout',
-                    help='training objective; scheduled_sampling reproduces round1 V0.1')
+                    help='training objective; one_step is the clean next-cycle loss; '
+                         'scheduled_sampling reproduces round1 V0.1')
     ap.add_argument('--rollout-loss-weight', type=float, default=1.0,
                     help='weight of the fully free-running rollout MAE in training')
     ap.add_argument('--delta-scale', type=float, default=10.0)
@@ -306,7 +344,28 @@ def main():
     cells_raw = load_cells(data_path)
     if args.test_cell not in cells_raw:
         raise KeyError(args.test_cell)
-    train_raw = np.concatenate([q for name, (_, q) in cells_raw.items() if name != args.test_cell])
+    # Build the split on raw trajectories before normalization.  In addition
+    # to avoiding multi-step target overlap, this lets train_minmax use only
+    # the prefix that can contribute training targets; validation tails and the
+    # held-out test cell never determine the scale.
+    split_info = {}
+    train_raw_parts = []
+    for name, (cycles, q) in cells_raw.items():
+        if name == args.test_cell:
+            continue
+        train_idx, val_idx, validation_start = split_window_indices(
+            len(q), WINDOW, args.rollout_horizon
+        )
+        split_info[name] = {
+            'train_windows': int(len(train_idx)),
+            'validation_windows': int(len(val_idx)),
+            'validation_start_index': validation_start,
+            'validation_start_cycle': float(cycles[validation_start]),
+        }
+        train_raw_parts.append(q[:validation_start])
+    if not train_raw_parts:
+        raise ValueError('at least one non-test training trajectory is required')
+    train_raw = np.concatenate(train_raw_parts)
     if args.normalization == 'train_minmax':
         norm_min, norm_max = float(train_raw.min()), float(train_raw.max())
     else:
@@ -316,21 +375,10 @@ def main():
     train_cells = {k: v for k, v in cells.items() if k != args.test_cell}
     horizon = args.rollout_horizon
     train_pairs, val_pairs = [], []
-    for _, (_, q) in train_cells.items():
-        # Split the windows that actually exist after applying the context
-        # length and forecast horizon.  Splitting the raw trajectory length
-        # first leaves no training samples for short, sparsely sampled public
-        # datasets such as Oxford (about 80 points per cell with WINDOW=64).
-        available = np.arange(WINDOW, len(q) - horizon + 1)
-        if len(available) < 2:
-            raise ValueError(
-                f'trajectory has too few usable windows: {len(q)} points, '
-                f'horizon={horizon}, window={WINDOW}'
-            )
-        cut = int(np.ceil(0.8 * len(available)))
-        cut = min(max(cut, 1), len(available) - 1)
-        train_idx = available[:cut]
-        val_idx = available[cut:]
+    for name, (_, q) in train_cells.items():
+        train_idx, val_idx, _ = split_window_indices(
+            len(q), WINDOW, horizon
+        )
         train_pairs.append(make_windows(q, train_idx, horizon))
         val_pairs.append(make_windows(q, val_idx, horizon))
     train_ds = TensorDataset(torch.cat([x for x, _ in train_pairs]), torch.cat([y for _, y in train_pairs]))
@@ -353,7 +401,10 @@ def main():
     config = dict(vars(args), normalization_min=norm_min, normalization_max=norm_max,
                   normalization_range=norm_range, eol_threshold_Ah=args.rated * args.eol_ratio,
                   feedback_bounds=[feedback_low, feedback_high], train_samples=len(train_ds),
-                  val_samples=len(val_ds), parameters=sum(p.numel() for p in model.parameters()))
+                  val_samples=len(val_ds), parameters=sum(p.numel() for p in model.parameters()),
+                  split_policy='target_disjoint', split_info=split_info,
+                  normalization_source=('rated' if args.normalization == 'rated'
+                                        else 'train_cells_train_target_prefix'))
     (out / 'config.json').write_text(json.dumps(config, indent=2))
     with (out / 'epochs.csv').open('w', newline='') as fh:
         writer = csv.writer(fh)
@@ -373,7 +424,17 @@ def main():
             train_roll_total = 0.0
             for x, future in train_loader:
                 opt.zero_grad()
-                if args.train_objective == 'scheduled_sampling':
+                if args.train_objective == 'one_step':
+                    # Pure next-cycle supervision.  Recursive rollout remains
+                    # an evaluation-only stability diagnostic, so it cannot
+                    # distort the selector while we test its scale signal.
+                    one_step = model(x).squeeze(-1)
+                    one_loss = (one_step - future[:, 0]).abs().mean()
+                    rollout_loss = one_loss.detach()
+                    gate = getattr(model, 'latest_gate_probs', None)
+                    gates = [gate] if gate is not None else []
+                    loss = one_loss
+                elif args.train_objective == 'scheduled_sampling':
                     if args.variant in ('adaptive', 'residual'):
                         pred, gates = rollout(model, x, future, tf,
                                               feedback_low, feedback_high, True)
