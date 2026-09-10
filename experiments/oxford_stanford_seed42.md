@@ -18,6 +18,12 @@ and ARMSE by about 6.7%.  Recursive metrics are recorded in each run's
 `metrics.json`; they are secondary because the primary protocol refreshes the
 input window with measured capacity.
 
+The Oxford values are in the CSV's capacity units (Ah-like values). Stanford
+stores normalized SOH rather than Ah, so its MAE/RMSE values are unitless SOH
+errors. With a 16-point Stanford context the four candidates share one
+routing region; this is a compact-context compatibility result, not evidence
+of multi-region heterogeneity.
+
 Data preparation is intentionally kept outside the repository history: use
 `tools/prepare_oxford.py` for the public Oxford CSV and
 `tools/prepare_stanford_dynamic.py` for `all_cells_SOH.mat`.  The Stanford
